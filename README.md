@@ -24,3 +24,12 @@ SQL analysis and Tableau dashboard of Brazilian e-commerce sales, products, and 
 1. Download the dataset from Kaggle into `data/raw/`
 2. Load the tables into SQLite
 3. Run the queries in `sql/queries.sql`
+
+## Definition of Done
+- [ ] Olist tables loaded into SQLite
+- [ ] 10+ SQL queries with CTEs, window functions, and joins in `sql/queries.sql`
+- [ ] Late delivery vs. review score analysis
+- [ ] Repeat purchase analysis
+- [ ] Tableau dashboard: KPI row, 4-5 visuals, 2-3 filters
+- [ ] Live Tableau Public link and screenshot in README
+- [ ] Key findings and recommendations written
