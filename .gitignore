@@ -218,3 +218,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Data (large files)
+data/raw/*
+!data/raw/.gitkeep
+*.db
+*.sqlite
