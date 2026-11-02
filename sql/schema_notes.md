@@ -16,3 +16,18 @@
 - 2965 delivered orders have a null delivery date; excluded from late-delivery analysis.
 - Orders can have multiple payments and reviews; revenue uses order_items.price to avoid double counting.
 - Repeat purchase analysis uses customer_unique_id, not customer_id.
+
+# Join Paths
+- orders -> customers: orders.customer_id = customers.customer_id
+- orders -> order_items: orders.order_id = order_items.order_id
+- order_items -> products: order_items.product_id = products.product_id
+- products -> category translation: products.product_category_name = product_category_name_translation.product_category_name
+- order_items -> sellers: order_items.seller_id = sellers.seller_id
+- orders -> order_payments: orders.order_id = order_payments.order_id
+- orders -> order_reviews: orders.order_id = order_reviews.order_id
+
+## Decisions
+- Revenue = SUM(order_items.price), not payment_value, to avoid double counting from multiple payment rows.
+- Analysis window is 2017-01 to 2018-08; other months have too few orders and distort trends.
+- Repeat purchase analysis uses customer_unique_id.
+- Always use COUNT(DISTINCT order_id) after joining to order_items.
