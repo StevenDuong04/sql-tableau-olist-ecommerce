@@ -7,10 +7,10 @@ SQL analysis and Tableau dashboard of Brazilian e-commerce sales, products, and 
 
 **Data source:** Brazilian E-Commerce Public Dataset by Olist (Kaggle)
 
-**Tools:** SQL (SQLite), Tableau Public
+**Tools:** SQL (SQLite), Tableau Public, DB Browser
 
 **Approach:**
--
+- open -a "DB Browser for SQLite"
 
 **Key findings:**
 -
