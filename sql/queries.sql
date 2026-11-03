@@ -1,5 +1,6 @@
 -- Queries are ran through DB Browser
 
+-- Basic Queries to get a sense of the data --
 -- Monthly revenue and order count of delivered orders
 SELECT strftime('%Y-%m', o.order_purchase_timestamp) AS month,
     COUNT(DISTINCT o.order_id)                    AS orders,
@@ -73,7 +74,6 @@ ORDER BY avg_order_value DESC
 -- Findings: The month with the highest average order value is 2017-01 with an average order 
 -- value of 149.06, but contained the least amount of orders and revenue.
 
-
 -- Running total of revenue
 WITH monthly AS (
     SELECT
@@ -95,7 +95,6 @@ ORDER BY month;
 
 -- Findings: The total revenue from 2017-01 to 2018-08 is 13181027.13.
 
-
 -- Payment type breakdowns with share of total revenue
 SELECT p.payment_type, 
 	COUNT(DISTINCT p.order_id) AS orders,
@@ -109,3 +108,110 @@ ORDER BY total_value DESC
 
 -- Findings: The payment type with the highest orders and total value is 
 -- credit_card with 74304 orders and 78.46% of the total revenue.
+
+-- Advanced Queries --
+-- Reuseable CTE that gives one row per delivered order
+
+WITH delivered_orders AS (
+		 SELECT o.order_id,  
+		 c.customer_unique_id,
+		 o.order_purchase_timestamp,
+		 o.order_delivered_customer_date,
+		 (o.order_delivered_customer_date - o.order_purchase_timestamp) AS delivery_days,
+		 (o.order_delivered_customer_date - o.order_estimated_delivery_date) AS days_late,
+		 CASE
+					WHEN o.order_delivered_customer_date > o.order_estimated_delivery_date THEN 1
+					ELSE 0
+		END AS is_late
+		FROM orders o
+		JOIN customers c ON o.customer_id = c.customer_id
+		WHERE o.order_delivered_customer_date IS NOT NULL
+)
+
+SELECT COUNT(*) AS count, COUNT(order_delivered_customer_date) AS delivered_count
+FROM delivered_orders
+
+-- Checked that number of rows = number of delivered orders (96476 = 96476)
+
+
+-- Delivery performance and reviews --
+-- Overall late delivery rate and average days late for late deliveries
+SELECT COUNT(*) FILTER (WHERE is_late = 1) AS late_count,
+		ROUND(
+        COUNT(*) FILTER (WHERE is_late = 1) * 100.0/ COUNT(*), 2
+		) AS late_delivery_rate,
+		ROUND(AVG(days_late) FILTER (WHERE is_late = 1), 2) AS avg_days_late
+FROM delivered_orders
+
+-- Findings: 7827 orders were delivered late, with a 8.11 late delivery rate and an average of 0.04 days late for late deliveries.
+
+-- Late delivery rate by customer state, worst to best
+SELECT c.customer_state, 
+		ROUND(
+        COUNT(*) FILTER (WHERE is_late = 1) * 100.0/ COUNT(*), 2
+		) AS late_delivery_rate
+		FROM delivered_orders o
+		JOIN customers c ON  o.customer_unique_id = c.customer_unique_id
+		GROUP BY c.customer_state
+		ORDER BY late_delivery_rate ASC
+
+-- Findings:
+
+-- Average review score by delivery bucket: early, on time, 1-3 days late, 4-7 days late, 8+ days late
+SELECT CASE 
+						WHEN days_late < 0 THEN 'early'
+						WHEN days_late = 0 THEN 'on time'
+						WHEN days_late BETWEEN 1 AND 3 THEN '1-3 days late'
+						WHEN days_late BETWEEN 4 AND 7 THEN '4-7 days late'
+						ELSE '8+ days late'
+				END AS delivery_bucket,
+				ROUND(AVG(r.review_score), 2) AS avg_review
+FROM delivered_orders o
+JOIN order_reviews r ON o.order_id = r.order_id
+GROUP BY delivery_bucket
+
+-- Findings:
+
+-- Review score for late vs. on-time orders, with average score and the share of 1-star reviews for each
+SELECT CASE 
+		    WHEN days_late = 0 THEN 'on time'
+			WHEN days_late > 0 THEN 'late'
+        END AS delivery_outcome,
+		ROUND(AVG(r.review_score), 2) AS avg_review,
+		COUNT(*) FILTER (WHERE r.review_score = 1) AS '1 stars'
+FROM delivered_orders o
+JOIN order_reviews r ON o.order_id = r.order_id
+WHERE delivery_outcome IS NOT NULL
+GROUP BY delivery_outcome
+
+-- Findings:
+
+-- Worst sellers for late delivery: late rate and order count, with a minimum order threshold to reduce noise from smaller sellers
+
+SELECT s.seller_id,
+		COUNT(o.order_id) AS order_count,
+		ROUND(COUNT(*) FILTER (WHERE o.is_late = 1) * 100.0 / COUNT(*), 2) AS late_rate
+FROM delivered_orders o
+JOIN order_items i ON o.order_id = i.order_id
+JOIN sellers s ON i.seller_id = s.seller_id
+GROUP BY s.seller_id
+HAVING order_count > 30
+ORDER BY late_rate DESC
+
+-- Findings:
+
+-- Repeat Purchases --
+-- Repeat purchase rate
+
+
+-- Findings:
+
+-- Orders per customer distribution
+
+
+-- Findings:
+
+-- Late first order vs. repeat rate
+
+
+-- Findings:
