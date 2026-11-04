@@ -159,13 +159,13 @@ SELECT c.customer_state,
 
 -- Average review score by delivery bucket: early, on time, 1-3 days late, 4-7 days late, 8+ days late
 SELECT CASE 
-						WHEN days_late < 0 THEN 'early'
-						WHEN days_late = 0 THEN 'on time'
-						WHEN days_late BETWEEN 1 AND 3 THEN '1-3 days late'
-						WHEN days_late BETWEEN 4 AND 7 THEN '4-7 days late'
-						ELSE '8+ days late'
-				END AS delivery_bucket,
-				ROUND(AVG(r.review_score), 2) AS avg_review
+			WHEN days_late < 0 THEN 'early'
+			WHEN days_late = 0 THEN 'on time'
+			WHEN days_late BETWEEN 1 AND 3 THEN '1-3 days late'
+			WHEN days_late BETWEEN 4 AND 7 THEN '4-7 days late'
+			ELSE '8+ days late'
+		END AS delivery_bucket,
+	ROUND(AVG(r.review_score), 2) AS avg_review
 FROM delivered_orders o
 JOIN order_reviews r ON o.order_id = r.order_id
 GROUP BY delivery_bucket
@@ -177,8 +177,8 @@ SELECT CASE
 		    WHEN days_late = 0 THEN 'on time'
 			WHEN days_late > 0 THEN 'late'
         END AS delivery_outcome,
-		ROUND(AVG(r.review_score), 2) AS avg_review,
-		COUNT(*) FILTER (WHERE r.review_score = 1) AS '1 stars'
+	ROUND(AVG(r.review_score), 2) AS avg_review,
+	COUNT(*) FILTER (WHERE r.review_score = 1) AS '1 stars'
 FROM delivered_orders o
 JOIN order_reviews r ON o.order_id = r.order_id
 WHERE delivery_outcome IS NOT NULL
@@ -200,18 +200,67 @@ ORDER BY late_rate DESC
 
 -- Findings:
 
+
 -- Repeat Purchases --
 -- Repeat purchase rate
+WITH customer_orders AS (
+    SELECT
+        customer_unique_id,
+        COUNT(order_id) AS total_orders
+    FROM delivered_orders
+    GROUP BY customer_unique_id
+)
 
+SELECT
+    ROUND(
+        COUNT(*) FILTER (WHERE total_orders >= 2) * 100.0
+        / COUNT(*), 2
+    ) AS repeat_purchase_rate
+FROM customer_orders;
 
--- Findings:
+-- Findings: 3.0% of the customers have made a repeat purchase
 
 -- Orders per customer distribution
-
+SELECT CASE
+		    WHEN total_orders = 1 THEN '1 order'
+			WHEN total_orders = 2 THEN '2 orders'
+			WHEN total_orders= 3 THEN  '3 orders'
+	        ELSE '4+ orders'
+		END AS order_bins,
+	COUNT(*) AS customer_count
+FROM customer_orders
+GROUP BY order_bins
+ORDER BY total_orders ASC
 
 -- Findings:
 
 -- Late first order vs. repeat rate
+WITH ranked_order AS (
+	SELECT *, ROW_NUMBER() OVER (
+		PARTITION BY customer_unique_id
+		ORDER BY order_purchase_timestamp) AS order_rank
+	FROM delivered_orders
+)
+
+SELECT COUNT(order_id) FILTER (WHERE order_rank = 1 AND is_late = 1) AS first_order_late,
+	COUNT(order_id) FILTER (WHERE order_rank = 2) AS ordered_again
+FROM ranked_order
+
+-- Findings:
+
+
+-- Window Fuctions --
+-- Top 3 categories per state by revenue
 
 
 -- Findings:
+
+-- Customer spend quartiles
+
+
+-- Findings:
+
+-- Monthly cohorts
+
+
+-- Findings: 
