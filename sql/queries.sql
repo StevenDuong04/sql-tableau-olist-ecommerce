@@ -390,3 +390,36 @@ ORDER BY fpm.cohort_month;
 
 -- Findings: The month with the highest number of returning customers was 2018-02 (6288 customers) with a return rate of  2.99%.
 -- The lowest number of returning customers was 2017-01 (717 customers) wih a return rate of 3.63%
+
+
+-- Export to CSV --
+-- Some queries above were exported through DB browser
+
+WITH order_scores AS (
+    SELECT order_id, AVG(review_score) AS review_score
+    FROM order_reviews
+    GROUP BY order_id
+)
+SELECT
+    d.order_id,
+    oi.order_item_id,
+    d.customer_unique_id,
+    d.customer_state,
+    date(d.order_purchase_timestamp)                AS purchase_date,
+    strftime('%Y-%m', d.order_purchase_timestamp)   AS purchase_month,
+    COALESCE(t.product_category_name_english,
+             p.product_category_name,
+             'unknown')                             AS category,
+    oi.price,
+    oi.freight_value,
+    d.delivery_days,
+    d.days_late,
+    d.is_late,
+    s.review_score
+FROM delivered_orders d
+JOIN order_items oi ON d.order_id = oi.order_id
+JOIN products p     ON oi.product_id = p.product_id
+LEFT JOIN product_category_name_translation t
+       ON p.product_category_name = t.product_category_name
+LEFT JOIN order_scores s ON d.order_id = s.order_id
+ORDER BY d.order_purchase_timestamp, d.order_id, oi.order_item_id;
