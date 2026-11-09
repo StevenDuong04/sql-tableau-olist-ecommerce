@@ -1,4 +1,11 @@
 -- Queries are ran through DB Browser
+DROP VIEW IF EXISTS orders_in_scope;
+CREATE VIEW orders_in_scope AS
+SELECT *
+FROM orders
+WHERE order_status = 'delivered'
+  AND order_purchase_timestamp >= '2017-01-01'
+  AND order_purchase_timestamp <  '2018-09-01';
 
 -- Basic Queries to get a sense of the data --
 -- Monthly revenue and order count of delivered orders
@@ -23,7 +30,7 @@ SELECT COALESCE(t.product_category_name_english, p.product_category_name, 'unkno
     COUNT(DISTINCT o.order_id) AS orders,
     ROUND(SUM(oi.price), 2)    AS revenue,
     ROUND(100.0 * SUM(oi.price) / SUM(SUM(oi.price)) OVER (), 2) AS pct_of_revenue
-FROM orders o
+FROM orders_in_scope o
 JOIN order_items oi ON o.order_id = oi.order_id
 JOIN products p ON oi.product_id = p.product_id
 LEFT JOIN product_category_name_translation t
@@ -46,15 +53,15 @@ SELECT c.customer_state AS state,
     ROUND(SUM(oi.price), 2)    AS revenue,
     ROUND(SUM(oi.price) / COUNT(DISTINCT o.order_id), 2) AS revenue_per_order,
 	ROUND(100.0 * SUM(oi.price) / SUM(SUM(oi.price)) OVER (), 2) AS pct_of_revenue
-FROM orders o
+FROM orders_in_scope o
 JOIN customers c    ON o.customer_id = c.customer_id
 JOIN order_items oi ON o.order_id = oi.order_id
 WHERE o.order_status = 'delivered'
 GROUP BY c.customer_state
 ORDER BY revenue DESC;
 
--- Findings: The state with the most revenue is SP with 5067633.16 in revenue and 40501 orders
--- which contributes to 38.33% of total revenue, but has a lower revenue per order than RJ.
+-- Findings: The state with the most revenue is SP with $5055587.13 in revenue and 40406 orders
+-- which contributes to 38.36% of total revenue, but has a lower revenue per order than RJ.
 
 -- Average order value by month
 DROP VIEW IF EXISTS monthly;
@@ -72,16 +79,6 @@ WHERE o.order_status = 'delivered'
     AND o.order_purchase_timestamp >= '2017-01-01'
     AND o.order_purchase_timestamp < '2018-09-01'
 GROUP BY month;
-
-SELECT strftime('%Y-%m', o.order_purchase_timestamp) AS month, 
-	COUNT(DISTINCT o.order_id) AS dist_orders,
-	SUM(oi.price) AS revenue
-	FROM orders o
-	JOIN order_items oi ON o.order_id = oi.order_id
-	WHERE o.order_status = 'delivered'
-		AND o.order_purchase_timestamp >= '2017-01-01'
-		AND o.order_purchase_timestamp <  '2018-09-01'
-	GROUP BY month;
 
 SELECT *
 FROM monthly
@@ -111,13 +108,13 @@ SELECT p.payment_type,
 	ROUND(SUM(p.payment_value)) AS total_value,
 	ROUND(100.0 * SUM(p.payment_value) / SUM(SUM(p.payment_value)) OVER (), 2) AS pct_of_total
 FROM order_payments p
-JOIN orders o ON p.order_id = o.order_id
+JOIN orders_in_scope o ON p.order_id = o.order_id
 WHERE o.order_status = 'delivered'
 GROUP BY p.payment_type
 ORDER BY total_value DESC;
 
 -- Findings: The payment type with the highest orders and total value is 
--- credit_card with 74304 orders and 78.46% of the total revenue.
+-- credit_card with 74095 orders and 78.45% of the total revenue.
 
 -- Advanced Queries --
 -- Reuseable CTE that gives one row per delivered order
@@ -137,10 +134,9 @@ SELECT
         - julianday(date(o.order_estimated_delivery_date)) AS INTEGER) AS days_late,
     CASE WHEN date(o.order_delivered_customer_date) > date(o.order_estimated_delivery_date)
          THEN 1 ELSE 0 END AS is_late
-FROM orders o
+FROM orders_in_scope o
 JOIN customers c ON o.customer_id = c.customer_id
-WHERE o.order_status = 'delivered'
-  AND o.order_delivered_customer_date IS NOT NULL;
+WHERE o.order_delivered_customer_date IS NOT NULL;
 
 SELECT COUNT(*) AS count, COUNT(order_delivered_customer_date) AS delivered_count
 FROM delivered_orders;
@@ -157,7 +153,7 @@ SELECT COUNT(*) FILTER (WHERE is_late = 1) AS late_count,
 		ROUND(AVG(days_late) FILTER (WHERE is_late = 1), 2) AS avg_days_late
 FROM delivered_orders;
 
--- Findings: 6534 orders were delivered late, with a 6.77 late delivery rate and an average of 10.62 days late for late deliveries.
+-- Findings: 6531 orders were delivered late, with a 6.79 late delivery rate and an average of 10.62 days late for late deliveries.
 
 -- Late delivery rate by customer state, worst to best
 SELECT customer_state,
@@ -167,7 +163,7 @@ FROM delivered_orders
 GROUP BY customer_state
 ORDER BY late_delivery_rate DESC;
 
--- Findings: The state with the worst late delivery rate is AL with 21.41, and the best being AM with 2.76.
+-- Findings: The state with the worst late delivery rate is AL with 21.46, and the best being AM with 2.76.
 -- The late delivery rate seems to be steadily increasing when compared between states
 
 -- Average review score by delivery bucket: early, on time, 1-3 days late, 4-7 days late, 8+ days late
@@ -182,12 +178,13 @@ FROM order_reviews
 GROUP BY order_id;
 
 SELECT CASE 
-			WHEN days_late < 0 THEN 'early'
-			WHEN days_late = 0 THEN 'on time'
-			WHEN days_late BETWEEN 1 AND 3 THEN '1-3 days late'
-			WHEN days_late BETWEEN 4 AND 7 THEN '4-7 days late'
-			ELSE '8+ days late'
+			WHEN days_late < 0 THEN '1. early'
+			WHEN days_late = 0 THEN '2. on time'
+			WHEN days_late BETWEEN 1 AND 3 THEN '3. 1-3 days late'
+			WHEN days_late BETWEEN 4 AND 7 THEN '4. 4-7 days late'
+			ELSE '5. 8+ days late'
 		END AS delivery_bucket,
+	COUNT(*) AS orders,
 	ROUND(AVG(s.review_score), 2) AS avg_review
 FROM delivered_orders o
 JOIN order_scores s ON o.order_id = s.order_id
@@ -198,19 +195,18 @@ ORDER BY delivery_bucket;
 
 -- Review score for late vs. on-time orders, with average score and the share of 1-star reviews for each
 SELECT CASE 
-		    WHEN days_late = 1 THEN 'late'
-			ELSE 'on time'
+		    WHEN o.is_late = 1 THEN 'late'
+			ELSE 'on time or early'
         END AS delivery_outcome,
 	COUNT(*) AS orders,
 	ROUND(AVG(s.review_score), 2) AS avg_review,
 	ROUND(100.0 * SUM(s.review_score <= 1.5) / COUNT(*), 2) AS pct_one_star
 FROM delivered_orders o
 JOIN order_scores s ON o.order_id = s.order_id
-WHERE delivery_outcome IS NOT NULL
 GROUP BY delivery_outcome;
 
 -- Findings: Late deliveries tend to have a lower review with a higher one star rate,  but the ratio between
--- late and on time deliveries is big (820 late vs 96004 on time or earlier)
+-- late and on time deliveries is big (6378 late vs 89182 on time or earlier)
 
 -- Worst sellers for late delivery: late rate and order count, with a minimum order threshold to reduce noise from smaller sellers
 
@@ -220,10 +216,10 @@ SELECT i.seller_id,
 FROM delivered_orders o
 JOIN order_items i ON o.order_id = i.order_id
 GROUP BY i.seller_id
-HAVING order_count > 30
+HAVING order_count > 30 AND late_rate > 10
 ORDER BY late_rate DESC;
 
--- Findings: seller_id are encoded, but the highest late_rate is 32.56 out of 611 sellers
+-- Findings: seller_id are encoded, but the highest late_rate is 32.56 out of 118 sellers
 
 
 -- Repeat Purchases --
@@ -262,7 +258,7 @@ FROM customer_orders
 GROUP BY order_bins
 ORDER BY MIN(total_orders);
 
--- Findings: Customers who ordered once had the highest count with 90549 customers and those who ordered 4+ times had a count of 47 customers
+-- Findings: Customers who ordered once had the highest count with 90307 customers and those who ordered 4+ times had a count of 47 customers
 
 -- Late first order vs. repeat rate
 WITH ranked AS (
@@ -281,7 +277,7 @@ FROM ranked
 WHERE rn = 1
 GROUP BY is_late;
 
--- Findings: The ratio between first orders being late and on time is big (86993 on time or early vs 6357 late)
+-- Findings: The ratio between first orders being late and on time is big (86742 on time or early vs 6354 late)
 -- Both categories had similar repeat order rates (3.03 vs 2.55). This is because of the small amount of customers who
 -- ordered again based on their category.
 
@@ -293,7 +289,7 @@ WITH category_revenue AS (
         c.customer_state,
         COALESCE(pc.product_category_name_english, p.product_category_name, 'unknown') AS category,
         SUM(oi.price) AS total_revenue
-    FROM orders o
+    FROM orders_in_scope o
     JOIN customers c ON o.customer_id = c.customer_id
     JOIN order_items oi ON o.order_id = oi.order_id
     JOIN products p ON oi.product_id = p.product_id
@@ -301,7 +297,7 @@ WITH category_revenue AS (
     WHERE o.order_status = 'delivered'
     GROUP BY
         c.customer_state,
-        pc.product_category_name_english
+        category
 ),
 
 ranked_categories AS (
@@ -325,7 +321,7 @@ ORDER BY customer_state, category_rank;
 WITH customer_spendings AS (
 		SELECT c.customer_unique_id, 
 				ROUND(SUM(oi.price), 2) AS total_revenue
-		FROM orders o
+		FROM orders_in_scope o
 		JOIN customers c ON o.customer_id = c.customer_id
 		JOIN order_items oi ON o.order_id = oi.order_id
 		WHERE o.order_status = 'delivered'
@@ -348,7 +344,7 @@ FROM quartiles
 GROUP BY quartile
 ORDER BY quartile;
 
--- Findings: Quartile 4 has the most revenue ($8267262.49) along with the highest average customer spending of $354.23 per customer
+-- Findings: Quartile 4 has the most revenue ($8267262.49) along with the highest average customer spending of $354.07 per customer
 
 -- Monthly cohorts
 WITH ranked_orders AS (
@@ -388,7 +384,7 @@ WHERE fpm.cohort_month BETWEEN '2017-01' AND '2018-05'
 GROUP BY fpm.cohort_month
 ORDER BY fpm.cohort_month;
 
--- Findings: The month with the highest number of returning customers was 2018-02 (6288 customers) with a return rate of  2.99%.
+-- Findings: The month with the highest number of returning customers was 2017-1 (7060 customers) with a return rate of  2.32%.
 -- The lowest number of returning customers was 2017-01 (717 customers) wih a return rate of 3.63%
 
 
